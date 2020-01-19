@@ -5,8 +5,8 @@
 
 % Constants:
 g = 9.81;  % gravity
-r = 1;  % spring constant
-m = 1;  % mass
+r = 2000;  % spring constant
+m = 10;  % mass
 l_0 = 1;  % equilibrium leg length
 
 % Let y be horizontal distance, z be vertical distance, w be angular
@@ -23,32 +23,45 @@ A_f = [0 1 0 0 0;
 B_f = [0 0 0 0 1]';
 f_f = @(x_f, w) A_f * x_f + B_f * w + [0 0 0 -g 0]';
 
-% Touchdown detector:
-td = @(x_f) x_f(3) - l_0 * sin(x_f(5)) <= 0 && x_f(4) < 0;
-
 % Stance dynamics:
 % x_s = [theta, theta_dot, l, l_dot]
 f_s = @(x_s, u) [x_s(2); -2 * x_s(2) * x_s(4) / x_s(3) - g * cos(x_s(1)) / x_s(3);
             x_s(4); -g * sin(x_s(1)) + x_s(2)^2 * x_s(3) + r / m * (l_0 - x_s(3))] + ...
             [0 0; 0 1 / (m * x_s(3)^2); 0 0; r / m 0] * u;
         
+% Touchdown detector:
+td = @(x_f) x_f(3) - l_0 * sin(x_f(5)) <= 0 && x_f(4) < 0;
+
 % Takeoff detector:
 to = @(x_s, u) cos(x_s(1)) * x_s(2) * x_s(3) + sin(x_s(1)) * x_s(4) > 0 && ...
                r / m * sin(x_s(1)) * (l_0 - x_s(3) + u(1)) + ...
                cos(x_s(1)) * u(2) / (m * x_s(3)) >= 0;
+           
+% Flight to stance coordinate transformation (y_f is stance position):
+f2s = @(x_f, y_f) [acot(x_f(1)/x_f(3));
+              (x_f(1) * x_f(4) - x_f(3) * x_f(2)) / ((x_f(1) - y_f)^2 + x_f(3)^2);
+              sqrt((x_f(1) - y_f)^2 + x_f(3)^2);
+              (x_f(1) * x_f(2) + x_f(3) * x_f(4)) / sqrt((x_f(1) - y_f)^2 + x_f(3)^2)];
+
+% Stance to flight coordinate transformation:
+s2f = @(x_s, y_f) [cos(x_s(1)) * x_s(3) + y_f;
+             -sin(x_s(1)) * x_s(2) * x_s(3) + cos(x_s(1)) * x_s(4);
+              sin(x_s(1)) * x_s(3);
+              cos(x_s(1)) * x_s(2) * x_s(3) + sin(x_s(1)) * x_s(4);
+              x_s(1)];
 
 % Simulation initialization:
 dt = 0.001;
-K = 1000;
+K = 800;
 t = 0:dt:((K - 1) * dt);
-s = zeros(K);  % state variable, 0 is flight and 1 is stance
+s = zeros(1, K);  % state variable, 0 is flight and 1 is stance
 s(1) = 1;
 n_f = 5;
 n_s = 4;
 x_f = zeros(n_f, K);
 x_f(:, 1) = [0 0.1 2 0 pi/2]';
 x_s = zeros(n_s, K);
-x_s(:, 1) = [0 0 l_0 0]';
+x_s(:, 1) = [1.6 -0.8 l_0 -0.1]';
 u = [0 0]';
 
 % Simulation:
@@ -57,8 +70,9 @@ for k = 1:(K - 1)
         % Simulate stance dynamics:
         x_s(:, k + 1) = x_s(:, k) + f_s(x_s(:, k), u) * dt;
         
-        if to(x_s(:, k + 1))
+        if to(x_s(:, k + 1), u)
             s(k + 1) = 0;
+            %break
             % Do coord transformation here
         else
             s(k + 1) = 1;
@@ -78,8 +92,13 @@ end
 
 % Plot:
 figure(1); clf;
-plot(x_f(1, :), x_f(3, :));
-%plot(t, x_f(3, :) - l_0 * sin(x_f(5, :)));
+%plot(x_f(1, :), x_f(3, :));
+plot(t, r / m * sin(x_s(1, :)) .* (l_0 - x_s(3, :) + u(1)) + ...
+               cos(x_s(1, :)) .* u(2) / (m * x_s(3, :)));  % horizontal acceleration = 0
+hold on;
+grid on;
+plot(t, cos(x_s(1, :)) .* x_s(2, :) .* x_s(3, :) + sin(x_s(1, :)) .* x_s(4, :));  % vertical velocity > 0
+
 
 figure(2); clf;
 subplot(3, 2, 1);
@@ -111,5 +130,9 @@ title('l');
 subplot(2, 2, 4);
 plot(t, x_s(4, :));
 title('l dot');
+
+figure(4); clf;
+plot(t, s);
+
 
 
