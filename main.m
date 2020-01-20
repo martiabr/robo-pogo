@@ -30,12 +30,15 @@ f_s = @(x_s, u) [x_s(2); -2 * x_s(2) * x_s(4) / x_s(3) - g * cos(x_s(1)) / x_s(3
             [0 0; 0 1 / (m * x_s(3)^2); 0 0; r / m 0] * u;
         
 % Touchdown detector:
-td = @(x_f) x_f(3) - l_0 * sin(x_f(5)) <= 0 && x_f(4) < 0;
+td = @(x_f, x_fo) ~isequal(sign(x_f(3) - l_0 * sin(x_f(5))), ...
+                  sign(x_fo(3) - l_0 * sin(x_fo(5)))) && x_f(4) < 0;
 
 % Takeoff detector:
-to = @(x_s, u) cos(x_s(1)) * x_s(2) * x_s(3) + sin(x_s(1)) * x_s(4) > 0 && ...
-               r / m * sin(x_s(1)) * (l_0 - x_s(3) + u(1)) + ...
-               cos(x_s(1)) * u(2) / (m * x_s(3)) >= 0;
+to = @(x_s, x_so, u) cos(x_s(1)) * x_s(2) * x_s(3) + sin(x_s(1)) * x_s(4) > 0 && ...
+                     ~isequal(sign(r / m * sin(x_s(1)) * (l_0 - x_s(3) + u(1)) + ...
+                     cos(x_s(1)) * u(2) / (m * x_s(3))), ...
+                     sign(r / m * sin(x_so(1)) * (l_0 - x_so(3) + u(1)) + ...
+                     cos(x_so(1)) * u(2) / (m * x_so(3))));
            
 % Flight to stance coordinate transformation (y_f is stance position):
 f2s = @(x_f, y_f) [acot(x_f(1)/x_f(3));
@@ -51,18 +54,20 @@ s2f = @(x_s, y_f) [cos(x_s(1)) * x_s(3) + y_f;
               x_s(1)];
 
 % Simulation initialization:
-dt = 0.001;
-K = 800;
+dt = 0.0001;
+K = 4000;
 t = 0:dt:((K - 1) * dt);
 s = zeros(1, K);  % state variable, 0 is flight and 1 is stance
 s(1) = 1;
 n_f = 5;
 n_s = 4;
 x_f = zeros(n_f, K);
-x_f(:, 1) = [0 0.1 2 0 pi/2]';
+x_f(:, 1) = [0 0.1 2 0 1.6]';
+y_f = 0;
 x_s = zeros(n_s, K);
-x_s(:, 1) = [1.6 -0.8 l_0 -0.1]';
+x_s(:, 1) = [1.6 -0.8 0.8 -0.8]';
 u = [0 0]';
+w = -0.3;
 
 % Simulation:
 for k = 1:(K - 1)
@@ -70,20 +75,25 @@ for k = 1:(K - 1)
         % Simulate stance dynamics:
         x_s(:, k + 1) = x_s(:, k) + f_s(x_s(:, k), u) * dt;
         
-        if to(x_s(:, k + 1), u)
+        if k > 1 && to(x_s(:, k + 1), x_s(:, k), u)  % detect takeoff
             s(k + 1) = 0;
-            %break
-            % Do coord transformation here
+            w = x_s(2, k + 1);  % set new angular velocity
+            x_f(:, k + 1) = s2f(x_s(:, k + 1), y_f);
+            x_s(:, k + 1)
+            x_f(:, k + 1)
         else
             s(k + 1) = 1;
         end
     else
         % Simulate flight dynamics:
-        x_f(:, k + 1) = x_f(:, k) + f_f(x_f(:, k), 1) * dt;
+        x_f(:, k + 1) = x_f(:, k) + f_f(x_f(:, k), w) * dt;
         
-        if td(x_f(:, k + 1))
+        if k > 1 && td(x_f(:, k + 1), x_f(:, k))  % detect touchdown
             s(k + 1) = 1;
-            % Do coord transformation here
+            y_f = x_f(1, k + 1); % set new stance position
+            x_s(:, k + 1) = f2s(x_f(:, k + 1), y_f);
+            x_s(:, k + 1)
+            x_f(:, k + 1)
         else
             s(k + 1) = 0;
         end
@@ -92,7 +102,6 @@ end
 
 % Plot:
 figure(1); clf;
-%plot(x_f(1, :), x_f(3, :));
 plot(t, r / m * sin(x_s(1, :)) .* (l_0 - x_s(3, :) + u(1)) + ...
                cos(x_s(1, :)) .* u(2) / (m * x_s(3, :)));  % horizontal acceleration = 0
 hold on;
@@ -134,5 +143,6 @@ title('l dot');
 figure(4); clf;
 plot(t, s);
 
-
+figure(5); clf;
+plot(x_f(1, :), x_f(3, :));
 
